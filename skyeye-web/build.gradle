@@ -1,0 +1,88 @@
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'maven'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'application'
+
+group = 'skyeye'
+applicationName = 'skyeye-web'
+version = '1.1.0'
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+compileJava.options.encoding = 'UTF-8'
+buildDir = 'target'
+
+repositories {
+  mavenLocal()
+  maven { url "https://repository.cloudera.com/artifactory/cloudera-repos" }
+  maven { url "http://192.168.88.8:8081/nexus/content/repositories/cloudera"}
+  maven { url "http://192.168.88.8:8081/nexus/content/groups/public" }
+  maven { url "http://192.168.88.8:8081/nexus/content/repositories/releases" }
+  maven { url "http://192.168.88.8:8081/nexus/content/repositories/snapshots" }
+  mavenCentral()
+}
+
+ext {
+  baseVersion = '1.1.0'
+  dataVersion = '1.1.0'
+  jacksonVersion = '1.9.13'
+  httpclientVersion = '4.5.2'
+  fastjsonVersion = '1.2.35'
+  zkclientVersion = '0.10'
+}
+
+dependencies {
+  compile "skyeye:skyeye-base:$baseVersion"
+  compile "skyeye:skyeye-data-jpa:$dataVersion"
+  compile "skyeye:skyeye-data-http:$dataVersion"
+  compile "skyeye:skyeye-data-hbase:$dataVersion"
+  compile "skyeye:skyeye-data-rabbitmq:$dataVersion"
+  compile "org.springframework.boot:spring-boot-starter"
+  compile "org.springframework.boot:spring-boot-starter-aop"
+  compile("org.springframework.boot:spring-boot-starter-web") {
+    exclude group: 'org.springframework.boot', module: 'spring-boot-starter-validation'
+  }
+
+  compile "org.apache.httpcomponents:httpclient:$httpclientVersion"
+
+  compile "com.101tec:zkclient:$zkclientVersion"
+
+  compile "org.codehaus.jackson:jackson-core-asl:$jacksonVersion"
+  compile "org.codehaus.jackson:jackson-mapper-asl:$jacksonVersion"
+  compile "com.alibaba:fastjson:$fastjsonVersion"
+
+  compile "joda-time:joda-time:2.9.9"
+
+  testCompile "org.springframework.boot:spring-boot-starter-test"
+}
+
+configurations {
+  compile.exclude group: "log4j", module: "log4j"
+  compile.exclude group: "org.slf4j", module: "slf4j-log4j12"
+}
+
+mainClassName = 'com.jthink.skyeye.web.application.Application'
+
+buildscript {
+  ext {
+    springBootVersion = '1.5.6.RELEASE'
+  }
+
+  repositories {
+    mavenLocal()
+    maven { url "http://192.168.88.8:8081/nexus/content/groups/public" }
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+    classpath("io.spring.gradle:dependency-management-plugin:1.0.3.RELEASE")
+  }
+}
+
+startScripts {
+  doLast {
+    unixScript.text = unixScript.text.replaceAll("lib/(.*)\n", "lib/\\*")
+  }
+}

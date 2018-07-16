@@ -1,13 +1,13 @@
 package com.jthink.skyeye.client.logback.appender;
 
 import ch.qos.logback.core.Context;
-import ch.qos.logback.core.CoreConstants;
 import ch.qos.logback.core.UnsynchronizedAppenderBase;
 import ch.qos.logback.core.hook.DelayingShutdownHook;
 import ch.qos.logback.core.status.ErrorStatus;
+import ch.qos.logback.core.status.InfoStatus;
+import com.jthink.skyeye.base.constant.Constants;
 import com.jthink.skyeye.base.constant.RpcType;
 import com.jthink.skyeye.base.util.StringUtil;
-import com.jthink.skyeye.base.constant.Constants;
 import com.jthink.skyeye.client.core.constant.KafkaConfig;
 import com.jthink.skyeye.client.core.constant.NodeMode;
 import com.jthink.skyeye.client.core.kafka.partitioner.KeyModPartitioner;
@@ -16,10 +16,6 @@ import com.jthink.skyeye.client.core.register.ZkRegister;
 import com.jthink.skyeye.client.core.util.SysUtil;
 import com.jthink.skyeye.client.logback.builder.KeyBuilder;
 import com.jthink.skyeye.client.logback.encoder.KafkaLayoutEncoder;
-import com.jthink.skyeye.trace.dto.RegisterDto;
-import com.jthink.skyeye.trace.generater.IncrementIdGen;
-import com.jthink.skyeye.trace.registry.Registry;
-import com.jthink.skyeye.trace.registry.ZookeeperRegistry;
 import org.I0Itec.zkclient.ZkClient;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -28,8 +24,11 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -66,6 +65,12 @@ public class KafkaAppender<E> extends UnsynchronizedAppenderBase<E>  {
     private DelayingShutdownHook shutdownHook;
     // kafkaAppender遇到异常需要向zk进行写入数据，由于onCompletion()的调用在kafka集群完全挂掉时会有很多阻塞的日志会调用，所以我们需要保证只向zk写一次数据，监控中心只会发生一次报警
     private volatile AtomicBoolean flag = new AtomicBoolean(true);
+    // 心跳检测
+    private Timer timer;
+    // key
+    private byte[] key;
+    // 原始app
+    private String orginApp;
 
     /**
      * 构造方法
@@ -75,6 +80,9 @@ public class KafkaAppender<E> extends UnsynchronizedAppenderBase<E>  {
         this.checkAndSetConfig(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         // 设置分区类, 使用自定义的KeyModPartitioner，同样的key进入相同的partition
         this.checkAndSetConfig(ProducerConfig.PARTITIONER_CLASS_CONFIG, KeyModPartitioner.class.getName());
+
+        // 由于容器部署需要从外部获取host
+        this.checkAndSetConfig(ProducerConfig.CLIENT_ID_CONFIG, this.app + Constants.MIDDLE_LINE + this.host + Constants.MIDDLE_LINE + "logback");
 
         shutdownHook = new DelayingShutdownHook();
     }
@@ -95,6 +103,11 @@ public class KafkaAppender<E> extends UnsynchronizedAppenderBase<E>  {
 
         // 初始化zk
         this.zkRegister = new ZkRegister(new ZkClient(this.zkServers, 60000, 5000));
+        // 对app重新编号，防止一台host部署一个app的多个实例
+        this.orginApp = app;
+        this.app = this.zkRegister.mark(this.app, this.host);
+        this.key = ByteBuffer.allocate(4).putInt(new StringBuilder(this.app).append(this.host).toString().hashCode()).array();
+
         // 注册节点
         this.zkRegister.registerNode(this.host, this.app, this.mail);
 
@@ -105,6 +118,9 @@ public class KafkaAppender<E> extends UnsynchronizedAppenderBase<E>  {
     @Override
     public void stop() {
         super.stop();
+
+        // 停止心跳
+        this.heartbeatStop();
 
         // 关闭KafkaProuder
         if (LazySingletonProducer.isInstanced()) {
@@ -125,20 +141,25 @@ public class KafkaAppender<E> extends UnsynchronizedAppenderBase<E>  {
             return;
         }
         final String value = System.nanoTime() + Constants.SEMICOLON + this.encoder.doEncode(e);
-        final byte[] key = this.keyBuilder.build(e);
-        final ProducerRecord<byte[], String> record = new ProducerRecord<byte[], String>(this.topic, key, value);
+        // 对value的大小进行判定，当大于某个值认为该日志太大直接丢弃（防止影响到kafka）
+        if (value.length() > 10000) {
+            return;
+        }
+        final ProducerRecord<byte[], String> record = new ProducerRecord<>(this.topic, this.key, value.replaceFirst(this.orginApp, this.app).replaceFirst(Constants.HOSTNAME, this.host));
         LazySingletonProducer.getInstance(this.config).send(record, new Callback() {
             @Override
             public void onCompletion(RecordMetadata recordMetadata, Exception e) {
-                // TODO: 异常发生如何处理(目前使用RollingFileAppender.java中的方法)
                 if (null != e) {
                     // 如果发生异常, 将开始状态设置为false, 并每次append的时候都先check该状态
                     started = false;
                     addStatus(new ErrorStatus("kafka send error in appender", this, e));
                     // 发生异常，kafkaAppender 停止收集，向节点写入数据（监控系统会感知进行报警）
-                    if (flag.get() == true) {
+                    if (flag.get()) {
+                        // 启动心跳检测机制
+                        KafkaAppender.this.heartbeatStart();
+                        // 向zk通知
                         zkRegister.write(Constants.SLASH + app + Constants.SLASH + host, NodeMode.EPHEMERAL,
-                                String.valueOf(System.currentTimeMillis()) + Constants.SEMICOLON + SysUtil.userDir);
+                                String.valueOf(Constants.APP_APPENDER_STOP_KEY + Constants.SEMICOLON + System.currentTimeMillis()) + Constants.SEMICOLON + SysUtil.userDir);
                         flag.compareAndSet(true, false);
                     }
                 }
@@ -146,11 +167,57 @@ public class KafkaAppender<E> extends UnsynchronizedAppenderBase<E>  {
         });
     }
 
+    /**
+     * 心跳检测开始
+     */
+    public void heartbeatStart() {
+        // 心跳检测定时器初始化
+        this.timer = new Timer();
+        this.timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                byte[] key = ByteBuffer.allocate(4).putInt(Constants.HEARTBEAT_KEY.hashCode()).array();
+                final ProducerRecord<byte[], String> record = new ProducerRecord<>(topic, key, Constants.HEARTBEAT_VALUE);
+
+                // java 8 lambda
+//                LazySingletonProducer.getInstance(config).send(record, (RecordMetadata recordMetadata, Exception e) -> {
+                // logic code
+//                });
+
+                LazySingletonProducer.getInstance(config).send(record, new Callback() {
+                    @Override
+                    public void onCompletion(RecordMetadata recordMetadata, Exception e) {
+                        if (null == e) {
+                            // 更新flag状态
+                            flag.compareAndSet(false, true);
+                            // 如果没有发生异常, 说明kafka从异常状态切换为正常状态, 将开始状态设置为true
+                            started = true;
+                            addStatus(new InfoStatus("kafka send normal in appender", this, e));
+                            // 关闭心跳检测机制
+                            KafkaAppender.this.heartbeatStop();
+                            zkRegister.write(Constants.SLASH + app + Constants.SLASH + host, NodeMode.EPHEMERAL,
+                                    String.valueOf(Constants.APP_APPENDER_RESTART_KEY + Constants.SEMICOLON + System.currentTimeMillis()) + Constants.SEMICOLON + SysUtil.userDir);
+                        }
+                    }
+                });
+            }
+        }, 10000,60000);
+    }
+
+    /**
+     * 心跳检测停止
+     */
+    private void heartbeatStop() {
+        if (null != this.timer) {
+            this.timer.cancel();
+        }
+    }
+
     @Override
     public void setContext(Context context) {
         super.setContext(context);
 
-        this.host = context.getProperty(CoreConstants.HOSTNAME_KEY);
+        this.host = SysUtil.host;
         this.app = context.getName();
     }
 

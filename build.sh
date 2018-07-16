@@ -1,60 +1,46 @@
 #!/bin/bash
 
-# set the project dir
-home_dir=`pwd`
-base_dir=$home_dir/skyeye-base
-data_dir=$home_dir/skyeye-data
-client_dir=$home_dir/skyeye-client
-trace_dir=$home_dir/skyeye-trace
-alarm_dir=$home_dir/skyeye-alarm
-collector_dir=$home_dir/skyeye-collector
-monitor_dir=$home_dir/skyeye-monitor
-web_dir=$home_dir/skyeye-web
+version=$1
+branch=$2
 
-# compile the base project
-echo 'start to compile skyeye-base...'
-cd $base_dir
-gradle clean install uploadArchives
-echo 'finish compile skyeye-base...'
+pwd=`pwd`
 
-# compile the data project
-echo 'start to compile skyeye-data...'
-cd $data_dir
-gradle clean install uploadArchives
-echo 'finish compile skyeye-data...'
+echo "start build skyeye-agent"
+cd $pwd/skyeye-agent/image
+sudo bash build.sh $version
+echo "finished build skyeye-agent"
 
-# compile the trace project
-echo 'start to compile skyeye-trace...'
-cd $trace_dir
-gradle clean install uploadArchives
-echo 'finish compile skyeye-trace...'
+echo "start build skyeye-alarm"
+cd $pwd/skyeye-alarm/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-alarm"
 
-# compile the client project
-echo 'start to compile skyeye-client...'
-cd $client_dir
-gradle clean install uploadArchives
-echo 'finish compile skyeye-client...'
+echo "start build skyeye-monitor"
+cd $pwd/skyeye-monitor/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-monitor"
 
-# compile the alarm project
-echo 'start to compile skyeye-alarm...'
-cd $alarm_dir
-gradle clean distZip -x test
-echo 'finish compile skyeye-alarm...'
+echo "start build skyeye-web"
+cd $pwd/skyeye-web/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-web"
 
-# compile the collector project
-echo 'start to compile skyeye-collector...'
-cd $collector_dir
-gradle clean build -x test
-echo 'finish compile skyeye-collector...'
+echo "start build skyeye-collector-backup"
+cd $pwd/skyeye-collector/skyeye-collector-backup/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-collector-backup"
 
-# compile the monitor project
-echo 'start to compile skyeye-monitor...'
-cd $monitor_dir
-gradle clean distZip -x test
-echo 'finish compile skyeye-monitor...'
+echo "start build skyeye-collector-indexer"
+cd $pwd/skyeye-collector/skyeye-collector-indexer/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-collector-indexer"
 
-# compile the web project
-echo 'start to compile skyeye-web...'
-cd $web_dir
-gradle clean distZip -x test
-echo 'finish compile skyeye-web...'
+echo "start build skyeye-collector-metrics"
+cd $pwd/skyeye-collector/skyeye-collector-metrics/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-collector-metrics"
+
+echo "start build skyeye-collector-trace"
+cd $pwd/skyeye-collector/skyeye-collector-trace/image
+sudo bash build.sh $version $branch
+echo "finished build skyeye-collector-trace"

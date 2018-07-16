@@ -64,7 +64,7 @@ public class AppChildrenChangeListener implements PathChildrenCacheListener {
                     this.rabbitmqService.sendMessage(info, datas[0]);
                     LOGGER.info(info);
                     CacheService.appHosts.add(node);
-                    this.appInfoService.add(host, app, Constants.ZK_NODE_TYPE_EPHEMERAL, LogCollectionStatus.RUNNING);
+                    this.appInfoService.add(host, app, Constants.ZK_NODE_TYPE_EPHEMERAL, this.calLogCollectionStatus(app, host));
                 }
                 this.appInfoService.add(host, app, Constants.ZK_NODE_TYPE_PERSISTENT, LogCollectionStatus.HISTORY);
                 break;
@@ -91,13 +91,22 @@ public class AppChildrenChangeListener implements PathChildrenCacheListener {
                 app = this.getApp(node);
                 host = this.getHost(node);
 
-                info = this.buildMsg(DateUtil.format(new Date(Long.parseLong(datas[0])), DateUtil.YYYYMMDDHHMMSS), app,
-                        this.getHost(node), datas[1], Constants.APP_APPENDER_STOP);
+                String detail = Constants.APP_APPENDER_STOP;
+                LogCollectionStatus status = LogCollectionStatus.STOPPED;
+
+                if (datas[0].equals(Constants.APP_APPENDER_RESTART_KEY)) {
+                    // 如果是kafka appender restart
+                    detail = Constants.APP_APPENDER_RESTART;
+                    status = LogCollectionStatus.RUNNING;
+                }
+
+                info = this.buildMsg(DateUtil.format(new Date(Long.parseLong(datas[1])), DateUtil.YYYYMMDDHHMMSS), app,
+                        this.getHost(node), datas[2], detail);
 
                 // add to the queue
                 this.rabbitmqService.sendMessage(info, this.zkClient.readData(Constants.ROOT_PATH_PERSISTENT + Constants.SLASH + app + Constants.SLASH + host).toString().split(Constants.SEMICOLON)[0]);
                 LOGGER.info(info);
-                this.appInfoService.update(host, app, Constants.ZK_NODE_TYPE_EPHEMERAL, LogCollectionStatus.STOPPED);
+                this.appInfoService.update(host, app, Constants.ZK_NODE_TYPE_EPHEMERAL, status);
                 break;
         }
     }
@@ -142,5 +151,19 @@ public class AppChildrenChangeListener implements PathChildrenCacheListener {
     private String buildMsg(String time, String app, String host, String deploy, String msg) {
         AlertDto alertDto = new AlertDto(time, app, host, deploy, msg);
         return alertDto.toString();
+    }
+
+    /**
+     * 根据app和host计算LogCollectionStatus
+     * @param app
+     * @param host
+     * @return
+     */
+    public LogCollectionStatus calLogCollectionStatus(String app, String host) {
+        String[] datas = this.zkClient.readData(Constants.ROOT_PATH_EPHEMERAL + Constants.SLASH + app + Constants.SLASH + host).toString().split(Constants.SEMICOLON);
+        if (datas[0].equals(Constants.APPENDER_INIT_DATA) || datas[0].equals(Constants.APP_APPENDER_RESTART_KEY)) {
+            return LogCollectionStatus.RUNNING;
+        }
+        return LogCollectionStatus.STOPPED;
     }
 }

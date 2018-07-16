@@ -1,5 +1,6 @@
 package com.jthink.skyeye.client.log4j2.appender;
 
+import com.jthink.skyeye.base.constant.Constants;
 import com.jthink.skyeye.client.core.constant.KafkaConfig;
 import com.jthink.skyeye.client.core.kafka.partitioner.KeyModPartitioner;
 import com.jthink.skyeye.client.core.producer.LazySingletonProducer;
@@ -15,6 +16,7 @@ import org.apache.logging.log4j.core.config.Property;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Timer;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -46,6 +48,10 @@ public class KafkaManager extends AbstractManager {
     // zk注册器
     private ZkRegister zkRegister;
     private byte[] key;
+    // 心跳检测
+    private Timer timer;
+    // 原始app
+    private String orginApp;
 
     public KafkaManager(final LoggerContext loggerContext, final String name, final String topic, final String zkServers, final String mail, final  String rpc,
                         final String app, final String host, final Property[] properties) {
@@ -55,6 +61,7 @@ public class KafkaManager extends AbstractManager {
         this.mail = mail;
         this.rpc = rpc;
         this.app = app;
+        this.orginApp = app;
         this.host = host;
         this.checkAndSetConfig(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
         this.checkAndSetConfig(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -64,8 +71,8 @@ public class KafkaManager extends AbstractManager {
         for (final Property property : properties) {
             this.config.put(property.getName(), property.getValue());
         }
-        // 设置key
-        this.key = ByteBuffer.allocate(4).putInt(new StringBuilder(app).append(host).toString().hashCode()).array();
+        // 由于容器部署需要从外部获取host
+        this.config.put(ProducerConfig.CLIENT_ID_CONFIG, this.app + Constants.MIDDLE_LINE + this.host + Constants.MIDDLE_LINE + "log4j2");
     }
 
     /**
@@ -74,6 +81,11 @@ public class KafkaManager extends AbstractManager {
     public void startup() {
         // 初始化zk
         this.zkRegister = new ZkRegister(new ZkClient(this.zkServers, 60000, 5000));
+        // 对app重新编号，防止一台host部署一个app的多个实例
+        this.app = this.zkRegister.mark(this.app, this.host);
+        // 设置key
+        this.key = ByteBuffer.allocate(4).putInt(new StringBuilder(this.app).append(this.host).toString().hashCode()).array();
+
         // 注册节点
         this.zkRegister.registerNode(this.host, this.app, this.mail);
         // rpc trace注册中心
@@ -105,9 +117,12 @@ public class KafkaManager extends AbstractManager {
     }
 
     /**
-     * 关闭zk和kafka
+     * 关闭zk和kafka、心跳检测
      */
     public void closeResources() {
+        if (null != this.timer) {
+            this.timer.cancel();
+        }
         if (LazySingletonProducer.isInstanced()) {
             LazySingletonProducer.getInstance(KafkaManager.this.config).close();
         }
@@ -200,5 +215,23 @@ public class KafkaManager extends AbstractManager {
 
     public void setKey(byte[] key) {
         this.key = key;
+    }
+
+    public Timer getTimer() {
+        return timer;
+    }
+
+    public KafkaManager setTimer(Timer timer) {
+        this.timer = timer;
+        return this;
+    }
+
+    public String getOrginApp() {
+        return orginApp;
+    }
+
+    public KafkaManager setOrginApp(String orginApp) {
+        this.orginApp = orginApp;
+        return this;
     }
 }

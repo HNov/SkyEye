@@ -33,6 +33,7 @@ public class Constants {
     public static final String VERTICAL_LINE = "|";
     public static final String VERTICAL_LINE_SPLIT = "\\|";
     public static final String XING_HAO = "*";
+    public static final String JING_HAO = "#";
 
     // 构造sql相关
     public static final String LEFT_S_BRACKETS = "(";
@@ -108,6 +109,7 @@ public class Constants {
     //  name info类型相关
     public static final String API = "api";
     public static final String ACCOUNT = "account";
+    public static final String MIDDLEWARE = "middleware";
     public static final String THIRD = "third";
 
     // zk节点
@@ -132,8 +134,18 @@ public class Constants {
     public static final String WECHAT_ALERT_MSG = "详情: ";
     public static final String APP_START = "start";
     public static final String APP_STOP = "stop";
+    public static final String APP_APPENDER_RESTART_KEY = "restart";
+    public static final String APP_APPENDER_RESTART = "kafka appender restart";
+    public static final String APP_APPENDER_STOP_KEY = "stop";
     public static final String APP_APPENDER_STOP = "kafka appender stop";
     public static final String WECHAT_ALERT_RESPONSE_EXCEED = "响应时间超过阈值";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE = "{uniqueName}响应时间超过阈值,{window}分钟内响应时间超过{cost}ms占比大于{threshold}%,当前占比:{total}%,总请求次数:{cnt}";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE_UNIQUENAME = "{uniqueName}";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE_WINDOW = "{window}";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE_COST = "{cost}";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE_THRESHOLD = "{threshold}";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE_TOTAL = "{total}";
+    public static final String TIME_CONSUME_ALARM_TEMPLATE_CNT = "{cnt}";
 
     // 日志类型
     public static final String EVENT_TYPE_NORMAL = "normal";
@@ -220,5 +232,15 @@ public class Constants {
     public static final String TRACE_TOTAL = "total";
     public static final String TRACE_TYPE = "type";
     public static final String TRACE_TABLE_NAME = "rpctrace";
+
+    // 心跳检测相关
+    public static final String HEARTBEAT_KEY = "heart beat key";
+    public static final String HEARTBEAT_VALUE = "heart beat value";
+
+    // docker容器相关
+    public static final String SKYEYE_HOST_TO_REGISTRY = "SKYEYE_HOST_TO_REGISTRY";
+    public static final String COMPUTERNAME = "COMPUTERNAME";
+    public static final String SKYEYE_HOST_FILE = System.getProperty("user.home") + "/.skyeye/host";
+    public static final String UNKNOWN_HOST = "UnknownHost";
 
 }
